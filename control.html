@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeuroBoard Control</title>
+<style>
+  /* Always dark: flicker contrast is white on black. */
+  :root { --bg: #000; --ink: #eee; --muted: #8a8a92; --accent: #4dabf7; --ok: #51cf66; --warn: #ffa94d; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+               font: 16px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { display: flex; flex-direction: column; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; justify-content: center;
+         padding: 10px 16px; color: var(--muted); font-size: 14px; }
+  .bar b { color: var(--ink); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
+  .dot.on { background: var(--ok); }
+  button { font: inherit; font-size: 15px; padding: 8px 16px; border-radius: 8px; border: 1px solid #444;
+           background: #1c1c20; color: var(--ink); cursor: pointer; }
+  button.run { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 700; }
+  .warn { color: var(--warn); }
+  /* cross layout: up / left OK right / down, with wide gaps so neighbours don't leak into view */
+  .pad { flex: 1; display: grid; place-content: center;
+         grid-template-columns: repeat(3, var(--box)); grid-template-rows: repeat(3, var(--box));
+         gap: calc(var(--box) * 0.45);
+         --box: min(17vw, 19vh, 220px); padding: 8px 16px 24px; }
+  .t { position: relative; display: flex; align-items: center; justify-content: center; }
+  .t .sq { position: absolute; inset: 0; background: #000; border: 3px solid #333; border-radius: 6px; }
+  .t .lab { position: absolute; top: -30px; left: 0; right: 0; text-align: center; font-weight: 700; font-size: 18px; }
+  .t .hz { position: absolute; bottom: -24px; left: 0; right: 0; text-align: center; color: var(--muted); font-size: 12px; }
+  .t.lead .sq { border-color: var(--accent); }
+  .t.fired .sq { border-color: var(--ok); }
+  #up { grid-area: 1 / 2; } #left { grid-area: 2 / 1; } #ok { grid-area: 2 / 2; }
+  #right { grid-area: 2 / 3; } #down { grid-area: 3 / 2; }
+  .meter { width: 160px; height: 8px; background: #333; border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span><span class="dot" id="dot"></span><span id="status">Connecting...</span></span>
+  <span>Screen: <b id="hz">measuring...</b></span>
+  <span>Lean: <b id="leader">-</b> <span class="meter"><i id="conf"></i></span></span>
+  <button id="run" class="run">Start</button>
+</div>
+<div id="warn" class="bar warn"></div>
+<div class="pad" id="pad"></div>
+
+<script>
+// Each square is white when sin(2*pi*f*t) >= 0, updated once per screen frame
+// (the same frame-locked method as NeuroPawn's stimulus.py).
+const pad = document.getElementById("pad");
+const ARROWS = { up: "↑ Up", left: "← Left", ok: "OK", right: "Right →", down: "↓ Down" };
+let cfg = null, running = false, start = null, els = {};
+
+function build() {
+  pad.innerHTML = "";
+  cfg.actions.forEach((a, k) => {
+    const d = document.createElement("div");
+    d.className = "t"; d.id = a;
+    d.innerHTML = `<div class="sq"></div><div class="lab">${ARROWS[a] || a}</div><div class="hz">${cfg.freqs[k]} Hz</div>`;
+    pad.appendChild(d);
+    els[a] = { box: d, sq: d.querySelector(".sq"), f: cfg.freqs[k] };
+  });
+}
+function frame(now) {
+  if (running) {
+    if (start === null) start = now;
+    const t = (now - start) / 1000;
+    for (const a in els) els[a].sq.style.background = Math.sin(2 * Math.PI * els[a].f * t) >= 0 ? "#fff" : "#000";
+  }
+  requestAnimationFrame(frame);
+}
+async function setRunning(on) {
+  if (on && !sessionStorage.getItem("ok")) {
+    if (!confirm("This screen flashes. Don't use it if anyone watching has photosensitive epilepsy. Continue?")) return;
+    try { sessionStorage.setItem("ok", "1"); } catch {}
+  }
+  running = on; start = null;
+  if (!on) for (const a in els) els[a].sq.style.background = "#000";
+  const b = document.getElementById("run");
+  b.textContent = on ? "Pause" : "Start"; b.classList.toggle("run", !on);
+  try { await fetch(`/nav/enable?on=${on ? 1 : 0}`, { method: "POST" }); } catch {}
+}
+document.getElementById("run").onclick = () => setRunning(!running);
+document.addEventListener("keydown", e => { if (e.code === "Space") { e.preventDefault(); setRunning(!running); } });
+
+// measure refresh rate (frequencies assume 60 Hz)
+(function () {
+  let t0 = null, n = 0;
+  function f(t) {
+    if (t0 === null) t0 = t;
+    n++;
+    if (t - t0 < 1500) return requestAnimationFrame(f);
+    const hz = Math.round(n * 1000 / (t - t0));
+    document.getElementById("hz").textContent = hz + " Hz";
+    if (Math.abs(hz - 60) > 3) document.getElementById("warn").textContent =
+      `This screen runs at ${hz} Hz. The flicker frequencies assume 60 Hz - set the display to 60 Hz if detection is poor.`;
+  }
+  requestAnimationFrame(f);
+})();
+
+async function init() {
+  try {
+    cfg = await (await fetch("/nav/config")).json();
+  } catch { document.getElementById("status").textContent = "Server not reachable - start board_server.py"; return; }
+  if (!cfg.available) document.getElementById("status").textContent = "Navigation off - start the server with --nav";
+  build();
+  requestAnimationFrame(frame);
+  const es = new EventSource("/events");
+  es.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type === "status") {
+      document.getElementById("dot").classList.toggle("on", !!m.eeg && !!m.nav);
+      document.getElementById("status").textContent = m.nav ? "Look at an arrow. Look at OK to select." : m.msg;
+    } else if (m.type === "navlean") {
+      for (const a in els) els[a].box.classList.toggle("lead", a === m.action);
+      document.getElementById("leader").textContent = ARROWS[m.action] || m.action;
+      document.getElementById("conf").style.width = Math.round(m.conf * 100) + "%";
+    } else if (m.type === "nav") {
+      const e = els[m.action];
+      if (e) { e.box.classList.add("fired"); setTimeout(() => e.box.classList.remove("fired"), 600); }
+    }
+  };
+}
+init();
+</script>
+</body>
+</html>
