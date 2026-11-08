@@ -1,0 +1,44 @@
+# --- secrets (API keys) - never commit
+server/.env
+.env
+.env.*
+!.env.example
+!server/.env.example
+
+# --- installed dependencies (recreated by start.sh / npm install)
+.venv/
+venv/
+node_modules/
+
+# --- build output
+web/dist/
+*.tsbuildinfo
+
+# --- runtime data: icon/voice caches + this user's personal learning (usage.json)
+server/data/
+
+# --- Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# --- EEG recordings and trained models (large / personal)
+ssvep_training/
+*.joblib
+*.npz
+*.csv
+*.edf
+*.fif
+
+# --- logs and temp files
+*.log
+npm-debug.log*
+.mictest/
+
+# --- OS / editor clutter
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

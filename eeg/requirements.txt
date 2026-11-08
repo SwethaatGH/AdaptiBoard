@@ -1,0 +1,6 @@
+brainflow>=5.12
+numpy
+scipy
+scikit-learn
+joblib
+websockets>=12
