@@ -20,7 +20,7 @@ Test without a headset:
         then type u / d / l / r / o + Enter to "look" at a key, or just Enter to look away.
     python eeg/decoder.py --server http://localhost:8000 --synthetic   (BrainFlow's fake board)
 
-Electrodes: SSVEP is strongest over the back of the head (O1, Oz, O2, PO3, POz, PO4).
+Electrodes: SSVEP is strongest over the back of the head. 8 channels: O1, Oz, O2, PO3, POz, PO4, PO7, PO8.
 Put as many channels as you can there; use conductive paste.
 """
 import argparse
@@ -110,10 +110,10 @@ class SimSource:
 class Hub:
     """WebSocket link to the AdaptiBoard server. Reconnects automatically."""
 
-    def __init__(self, server):
+    def __init__(self, server, room=""):
         u = urlparse(server if "://" in server else f"http://{server}")
         scheme = "wss" if u.scheme == "https" else "ws"
-        self.url = f"{scheme}://{u.netloc}/ws?role=decoder"
+        self.url = f"{scheme}://{u.netloc}/ws?role=decoder" + (f"&room={room}" if room else "")
         self.ws = None
         self.lock = threading.Lock()
         self.stimulus = {"on": False, "freqs": dict(DEFAULT_FREQS)}
@@ -241,6 +241,7 @@ def clench_loop(src, hub, args, stop):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--server", default="http://localhost:8000", help="AdaptiBoard server address")
+    ap.add_argument("--room", default="", help="private room id on a hosted server (open the board with ?room=<id>)")
     ap.add_argument("--port", default="COM3", help="headset serial port (Mac: /dev/cu.usbserial-XXXX)")
     ap.add_argument("--simulate", action="store_true", help="fake EEG, steer it from the keyboard")
     ap.add_argument("--synthetic", action="store_true", help="BrainFlow synthetic board")
@@ -264,7 +265,7 @@ def main():
     else:
         print("Connecting to the headset (channel setup takes ~20 s)...")
         src = HeadsetSource(args)
-    hub = Hub(args.server)
+    hub = Hub(args.server, args.room)
     stop = threading.Event()
     threads = [threading.Thread(target=ssvep_loop, args=(src, hub, args, stop), daemon=True)]
     if args.clench_model and not args.simulate:

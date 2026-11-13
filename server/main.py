@@ -15,6 +15,7 @@ WebSocket /ws?role=board|controller|decoder carries:
 """
 import argparse
 import asyncio
+import re
 import json
 import os
 import socket
@@ -70,11 +71,19 @@ async def lifespan(_app):
 
 
 app = FastAPI(title="AdaptiBoard", lifespan=lifespan)
-usage = predictor.Usage(DATA / "usage.json")
+
+# PRIVATE_ROOMS=1 (set in the Dockerfile for public hosting): every visitor's browser gets its own
+# board - its own commands, conversation, alerts and learning (kept in memory only).
+# Unset (./start.sh on your laptop): one shared room, learning saved to data/usage.json.
+PRIVATE = os.getenv("PRIVATE_ROOMS", "").strip() == "1"
+MAX_ROOMS = 300
 
 
-class State:
-    def __init__(self):
+class Room:
+    def __init__(self, rid, usage_path=None):
+        self.id = rid
+        self.usage = predictor.Usage(usage_path)
+        self.seen = time.time()
         self.clients: dict[WebSocket, str] = {}
         self.lines: list[tuple[float, str]] = []  # what was heard: (time, text)
         self.version = 0
@@ -86,7 +95,27 @@ class State:
         self.alert: dict | None = None
 
 
-S = State()
+MAIN = Room("main", DATA / "usage.json")
+ROOMS: dict[str, Room] = {}
+
+
+def get_room(rid) -> Room:
+    if not PRIVATE:
+        return MAIN
+    rid = re.sub(r"[^A-Za-z0-9_-]", "", str(rid or ""))[:40] or "anon"
+    R = ROOMS.get(rid)
+    if R is None:
+        if len(ROOMS) >= MAX_ROOMS:  # forget the oldest empty rooms
+            idle = sorted((r for r in ROOMS.values() if not r.clients), key=lambda r: r.seen)
+            for r in idle[: len(ROOMS) - MAX_ROOMS + 1]:
+                ROOMS.pop(r.id, None)
+        R = ROOMS[rid] = Room(rid)
+    R.seen = time.time()
+    return R
+
+
+def room_of(req: Request) -> Room:
+    return get_room(req.headers.get("x-room") or req.query_params.get("room"))
 
 
 # ---------------------------------------------------------------- websocket hub
@@ -97,13 +126,13 @@ async def send(ws, msg):
         pass
 
 
-async def broadcast(msg, roles=None):
+async def broadcast(S, msg, roles=None):
     for ws, role in list(S.clients.items()):
         if roles is None or role in roles:
             await send(ws, msg)
 
 
-def status_msg():
+def status_msg(S):
     counts = {"board": 0, "controller": 0, "decoder": 0}
     for r in S.clients.values():
         counts[r] = counts.get(r, 0) + 1
@@ -112,12 +141,12 @@ def status_msg():
             "tts": speech.TTS_AVAILABLE}
 
 
-async def handle_command(direction, source="unknown", conf=None):
+async def handle_command(S, direction, source="unknown", conf=None):
     if direction not in DIRECTIONS:
         return False
     S.last_command = {"direction": direction, "source": source, "t": time.time()}
     print(f"[command] {direction:5s} from {source}" + (f" (conf {conf:.2f})" if conf else ""))
-    await broadcast({"type": "command", "direction": direction, "source": source,
+    await broadcast(S, {"type": "command", "direction": direction, "source": source,
                      "ts": time.time()}, roles={"board", "controller"})
     return True
 
@@ -125,12 +154,13 @@ async def handle_command(direction, source="unknown", conf=None):
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     role = ws.query_params.get("role", "board")
+    S = get_room(ws.query_params.get("room"))
     await ws.accept()
     S.clients[ws] = role
     print(f"[ws] {role} connected ({len(S.clients)} clients)")
-    await broadcast(status_msg())
+    await broadcast(S, status_msg(S))
     if role == "board":
-        await send(ws, context_msg())
+        await send(ws, context_msg(S))
     if S.alert and role in ("board", "controller"):
         await send(ws, {"type": "alert", **S.alert})
     try:
@@ -138,18 +168,18 @@ async def ws_endpoint(ws: WebSocket):
             msg = json.loads(await ws.receive_text())
             t = msg.get("type")
             if t == "command":
-                await handle_command(msg.get("direction"), msg.get("source", role), msg.get("conf"))
+                await handle_command(S, msg.get("direction"), msg.get("source", role), msg.get("conf"))
             elif t == "lean":
-                await broadcast({"type": "lean", "direction": msg.get("direction"),
+                await broadcast(S, {"type": "lean", "direction": msg.get("direction"),
                                  "conf": msg.get("conf", 0)}, roles={"controller"})
             elif t == "stimulus":
                 freqs = {k: float(v) for k, v in (msg.get("freqs") or {}).items() if k in DIRECTIONS}
                 S.stimulus = {"on": bool(msg.get("on")),
                               "freqs": freqs if len(freqs) == 5 else S.stimulus["freqs"]}
                 print(f"[stimulus] {'ON' if S.stimulus['on'] else 'off'} {S.stimulus['freqs']}")
-                await broadcast(status_msg())
+                await broadcast(S, status_msg(S))
             elif t == "heard":
-                await add_heard(msg.get("text", ""))
+                await add_heard(S, msg.get("text", ""))
             elif t == "profile":
                 S.profile = msg.get("profile") or {}
             elif t == "ping":
@@ -159,12 +189,12 @@ async def ws_endpoint(ws: WebSocket):
     finally:
         S.clients.pop(ws, None)
         print(f"[ws] {role} disconnected")
-        await broadcast(status_msg())
+        await broadcast(S, status_msg(S))
 
 
 # ---------------------------------------------------------------- conversation context
-def context_msg():
-    ctx = current_context()
+def context_msg(S):
+    ctx = current_context(S)
     return {"type": "context", "version": S.version,
             "lines": [{"t": t, "text": s} for t, s in S.lines[-8:]],
             "keywords": list(ctx["keywords"].keys())[:8], "question": ctx["question"],
@@ -173,7 +203,7 @@ def context_msg():
             "items": [i["label"] for i in ctx.get("items", [])]}
 
 
-def current_context():
+def current_context(S):
     ctx = predictor.extract_context(S.lines)
     c = S.ctx_llm
     if c and time.time() - c["time"] < 150:
@@ -185,7 +215,7 @@ def current_context():
     return ctx
 
 
-async def add_heard(text):
+async def add_heard(S, text):
     text = " ".join(str(text).split())[:400]
     if not text:
         return
@@ -193,14 +223,14 @@ async def add_heard(text):
     S.lines = S.lines[-60:]
     S.version += 1
     print(f"[heard] {text}")
-    await broadcast(context_msg(), roles={"board"})
+    await broadcast(S, context_msg(S), roles={"board"})
     if llm.provider():
         if S.ctx_task and not S.ctx_task.done():
             S.ctx_task.cancel()
-        S.ctx_task = asyncio.create_task(refresh_llm_context(S.version))
+        S.ctx_task = asyncio.create_task(refresh_llm_context(S, S.version))
 
 
-async def refresh_llm_context(version):
+async def refresh_llm_context(S, version):
     await asyncio.sleep(1.0)  # wait for the speaker to finish their sentence
     try:
         c = await llm.extract_context(S.lines, S.profile)
@@ -214,12 +244,14 @@ async def refresh_llm_context(version):
     print(f"[llm] context: topic={c['topic']!r} items={[i['label'] for i in c['items']]} "
           f"answers={c['answers']}")
     if version == S.version:
-        await broadcast({**context_msg(), "llmUpdate": True}, roles={"board"})
+        await broadcast(S, {**context_msg(S), "llmUpdate": True}, roles={"board"})
 
 
 # ---------------------------------------------------------------- HTTP API
 @app.get("/api/config")
-async def config():
+async def config(req: Request):
+    S = room_of(req)
+    usage = S.usage
     lexicon = {}
     for items in CATEGORY_WORDS.values():
         for it in items:
@@ -233,7 +265,7 @@ async def config():
             "columns": [{"id": c, "title": t} for c, t in predictor.COLUMNS],
             "voices": [{"id": v, "label": l} for v, l in speech.VOICES],
             "defaultVoice": speech.DEFAULT_VOICE, "freqs": S.stimulus["freqs"],
-            "lexicon": list(lexicon.values()), **status_msg()}
+            "lexicon": list(lexicon.values()), **status_msg(S)}
 
 
 def _with_heard(tiles, ctx, category, page_index):
@@ -253,13 +285,15 @@ def _with_heard(tiles, ctx, category, page_index):
 
 @app.post("/api/predict")
 async def predict(req: Request):
+    S = room_of(req)
+    usage = S.usage
     body = await req.json()
     message = [str(w) for w in body.get("message", [])][-12:]
     page = body.get("page", "smart")
     page_index = int(body.get("pageIndex", 0))
     profile = body.get("profile") or S.profile
     S.profile = profile or S.profile
-    ctx = current_context()
+    ctx = current_context(S)
     base = {"completion": "", "source": "vocab", "contextVersion": S.version}
 
     if page == "keyboard":
@@ -326,31 +360,32 @@ async def select(req: Request):
     body = await req.json()
     word = str(body.get("word", "")).strip()
     if word:
-        usage.add(body.get("prev"), word, body.get("prev2"))
+        room_of(req).usage.add(body.get("prev"), word, body.get("prev2"))
     return {"ok": True}
 
 
 @app.post("/api/spoken")
 async def spoken(req: Request):
     """A whole sentence was spoken: save it for the Chat page."""
-    usage.add_phrase(str((await req.json()).get("text", "")))
+    room_of(req).usage.add_phrase(str((await req.json()).get("text", "")))
     return {"ok": True}
 
 
 @app.get("/api/phrases")
-async def phrases():
+async def phrases(req: Request):
+    usage = room_of(req).usage
     return {"phrases": [{"text": p, **usage.phrases[p]} for p in usage.top_phrases(200)]}
 
 
 @app.post("/api/phrases/delete")
 async def delete_phrase(req: Request):
-    usage.remove_phrase(str((await req.json()).get("text", "")))
+    room_of(req).usage.remove_phrase(str((await req.json()).get("text", "")))
     return {"ok": True}
 
 
 async def notify_caregiver(level, label, say):
     topic = os.getenv("NTFY_TOPIC", "").strip()
-    if not topic:
+    if not topic or PRIVATE:  # public demo visitors must never page a real caregiver
         return
     server = os.getenv("NTFY_SERVER", "https://ntfy.sh").rstrip("/")
     try:
@@ -368,34 +403,38 @@ async def notify_caregiver(level, label, say):
 @app.post("/api/need")
 async def need(req: Request):
     """A Needs tile was chosen. Emergencies/urgent needs alert everyone + the caregiver's phone."""
+    S = room_of(req)
     body = await req.json()
     level, label, say = body.get("level", "normal"), str(body.get("label", "")), str(body.get("say", ""))
     print(f"[need] {level.upper()}: {label} -> {say!r}")
     if level in ("emergency", "urgent"):
         S.alert = {"level": level, "label": label, "say": say, "t": time.time()}
-        await broadcast({"type": "alert", **S.alert}, roles={"board", "controller"})
+        await broadcast(S, {"type": "alert", **S.alert}, roles={"board", "controller"})
         asyncio.create_task(notify_caregiver(level, label, say))
-    return {"ok": True, "notify": bool(os.getenv("NTFY_TOPIC"))}
+    return {"ok": True, "notify": bool(os.getenv("NTFY_TOPIC")) and not PRIVATE}
 
 
 @app.post("/api/alert/clear")
-async def clear_alert():
+async def clear_alert(req: Request):
+    S = room_of(req)
     S.alert = None
-    await broadcast({"type": "alert", "clear": True}, roles={"board", "controller"})
+    await broadcast(S, {"type": "alert", "clear": True}, roles={"board", "controller"})
     return {"ok": True}
 
 
 @app.post("/api/heard")
 async def heard(req: Request):
-    await add_heard((await req.json()).get("text", ""))
+    S = room_of(req)
+    await add_heard(S, (await req.json()).get("text", ""))
     return {"ok": True, "version": S.version}
 
 
 @app.post("/api/transcript/clear")
-async def clear_transcript():
+async def clear_transcript(req: Request):
+    S = room_of(req)
     S.lines, S.ctx_llm = [], None
     S.version += 1
-    await broadcast(context_msg(), roles={"board"})
+    await broadcast(S, context_msg(S), roles={"board"})
     return {"ok": True}
 
 
@@ -409,7 +448,7 @@ async def transcribe(req: Request):
     except Exception as e:
         return JSONResponse({"error": str(e)}, 503)
     if text and req.query_params.get("append") == "1":
-        await add_heard(text)
+        await add_heard(room_of(req), text)
     return {"text": text}
 
 
@@ -435,13 +474,14 @@ async def icon(word: str):
 async def command(req: Request):
     """For decoders that prefer plain HTTP:  POST {"direction": "left"}"""
     body = await req.json()
-    ok = await handle_command(str(body.get("direction", "")).lower(), body.get("source", "http"))
+    ok = await handle_command(room_of(req), str(body.get("direction", "")).lower(), body.get("source", "http"))
     return JSONResponse({"ok": ok}, 200 if ok else 400)
 
 
 @app.get("/api/status")
-async def status():
-    return {**status_msg(), "lastCommand": S.last_command}
+async def status(req: Request):
+    S = room_of(req)
+    return {**status_msg(S), "lastCommand": S.last_command}
 
 
 # ---------------------------------------------------------------- web app

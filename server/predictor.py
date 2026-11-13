@@ -171,11 +171,12 @@ class Usage:
 
     KEYS = ("bigrams", "trigrams", "unigrams", "hours", "phrases")
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path | None = None):
+        """path=None keeps everything in memory (private rooms on a public server)."""
         self.path, self.lock = path, threading.Lock()
         for k in self.KEYS:
             setattr(self, k, {})
-        if path.exists():
+        if path and path.exists():
             try:
                 d = json.loads(path.read_text())
                 for k in self.KEYS:
@@ -184,6 +185,8 @@ class Usage:
                 pass
 
     def _save(self):
+        if self.path is None:
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps({k: getattr(self, k) for k in self.KEYS}))
 

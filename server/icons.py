@@ -33,12 +33,16 @@ ALIASES = {
     "turn off": "turn off", "remote": "remote control", "okay": "OK",
 }
 
-# Pictograms checked by eye. An id pins the exact symbol; None = no good symbol, use emoji.
+# Pictograms checked by eye. An id pins the exact symbol; None = no good symbol (word only).
 OVERRIDES: dict[str, int | None] = {
     "stop": 8289, "water": 2248, "who": 9853, "sit": 25081, "light": 8619, "watch": 2782,
     "park": 26296, "cold": 35583, "i'm cold": 35583, "what time is it": 13026,
-    "garden": 2434, "can": None, "can i": 9843, "can you": 9843, "how are you": None,
-    "you're welcome": None, "me too": None, "is": None,
+    "garden": 2434, "can": 35949, "can i": 9843, "can you": 9843, "how are you": 6009,
+    "you're welcome": 8128, "me too": 11591, "is": 36480,
+    # Needs page
+    "chest pain": 28781, "can't breathe": 11167, "seizure": 31432, "dizzy": 5442,
+    "move me": 32270, "too loud": 7157,
+    "excuse me": 9034, "maybe": 11696, "frustrated": 21820, "partner": 10344, "coming": 11708,
 }
 
 _index: dict[str, int | None] = {}

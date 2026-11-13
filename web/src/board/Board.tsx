@@ -2,7 +2,7 @@ import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
 import { Mic, Volume2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chime, siren, unlockAlarm } from "../lib/alarm";
-import { postJSON, useHub } from "../lib/hub";
+import { api, postJSON, useHub } from "../lib/hub";
 import { Listener } from "../lib/stt";
 import { prefetch, setVoice, speak, speechDone, stop as stopSpeech, unlockAudio } from "../lib/tts";
 import type { Alert, Category, Column, ContextInfo, Direction, MessageItem, Pos, Tile } from "../lib/types";
@@ -30,13 +30,13 @@ interface LexEntry {
 }
 
 const SMART: Page = { id: "smart", index: 0 };
-const BACK: Category = { id: "back", label: "Back", emoji: "↩️" };
+const BACK: Category = { id: "back", label: "Back", emoji: "" };
 const FALLBACK_CATS: Category[] = [
-  { id: "smart", label: "Smart Board", emoji: "✨" },
-  { id: "more", label: "More words", emoji: "📚" },
-  { id: "keyboard", label: "Keyboard", emoji: "⌨️" },
-  { id: "chat", label: "Chat", emoji: "💬" },
-  { id: "needs", label: "Needs", emoji: "🆘" },
+  { id: "smart", label: "Smart Board", emoji: "" },
+  { id: "more", label: "More words", emoji: "" },
+  { id: "keyboard", label: "Keyboard", emoji: "" },
+  { id: "chat", label: "Chat", emoji: "" },
+  { id: "needs", label: "Needs", emoji: "" },
 ];
 const TOP_PAGES = new Set(["smart", "more", "keyboard", "chat", "needs"]);
 const KEYBOARD: Page = { id: "keyboard", index: 0 };
@@ -95,7 +95,7 @@ export default function Board() {
 
   // ---------------------------------------------------------------- data
   useEffect(() => {
-    fetch("/api/config")
+    api("/api/config")
       .then((r) => r.json())
       .then((c) => {
         setCats(c.categories);
@@ -320,7 +320,7 @@ export default function Board() {
       setHistory([]);
       goTo(SMART, [], { push: false });
     } else if (id === "complete" && completion) {
-      setMessage([{ label: completion, text: completion, pos: "social", emoji: "✨", picto: false }]);
+      setMessage([{ label: completion, text: completion, pos: "social", emoji: "", picto: false }]);
       speak(completion);
       postJSON("/api/spoken", { text: completion }).catch(() => {});
       setSpoken(true);
@@ -588,8 +588,6 @@ export default function Board() {
           micError={micError}
           levelRef={levelRef}
           pending={pendingCtx}
-          status={status}
-          connected={connected}
           onSettings={() => setShowSettings(true)}
         />
         {page.id === "smart" ? (
@@ -632,7 +630,7 @@ export default function Board() {
             }}
           />
         )}
-        <HintBar focus={focus} lastCmd={lastCmd} />
+        <HintBar focus={focus} lastCmd={lastCmd} status={status} connected={connected} />
         {loading && <div className="loading-bar" />}
       </div>
 

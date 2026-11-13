@@ -1,3 +1,4 @@
+import { api } from "./hub";
 import { isSpeaking } from "./tts";
 
 /**
@@ -197,7 +198,7 @@ export class Listener {
         const blob = new Blob(chunks, { type: rec.mimeType });
         this.cb.onInterim("…transcribing");
         try {
-          const r = await fetch("/api/transcribe", {
+          const r = await api("/api/transcribe", {
             method: "POST",
             headers: { "Content-Type": rec.mimeType },
             body: blob,

@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { Send, Trash2, Volume2, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { postJSON } from "../lib/hub";
+import { api, postJSON } from "../lib/hub";
 import { browserSttSupported, type SttMode } from "../lib/stt";
 import { speak } from "../lib/tts";
 import type { HubStatus } from "../lib/types";
@@ -29,7 +29,7 @@ export function SettingsDrawer({ settings, update, voices, status, onClose }: Pr
   const [phrases, setPhrases] = useState<{ text: string; n: number }[]>([]);
   const p = settings.profile;
   const loadPhrases = () =>
-    fetch("/api/phrases").then((r) => r.json()).then((d) => setPhrases(d.phrases)).catch(() => {});
+    api("/api/phrases").then((r) => r.json()).then((d) => setPhrases(d.phrases)).catch(() => {});
   useEffect(() => {
     loadPhrases();
   }, []);
@@ -132,13 +132,6 @@ export function SettingsDrawer({ settings, update, voices, status, onClose }: Pr
             </div>
           ))}
         </div>
-
-        <h4>Needs alerts</h4>
-        <p className="note">
-          Red Needs tiles sound an alarm, speak "call nine one one" and show a full-screen alert. To also get a push
-          on the caregiver's phone, set <code>NTFY_TOPIC</code> in <code>server/.env</code> and subscribe to it in the free
-          ntfy app. AdaptiBoard never dials 911 itself.
-        </p>
 
         <h4>Keyboard (testing without EEG)</h4>
         <p className="note">Arrow keys move · Enter / Space = OK. Letter keys type into the on-screen keyboard (Enter adds the word). The controller screen sends the same five commands.</p>

@@ -1,0 +1,17 @@
+.git
+.venv
+venv
+**/node_modules
+web/dist
+server/.env
+.env
+server/data
+**/__pycache__
+eeg
+neuropawn-ssvep
+images
+*.html
+*.md
+*.joblib
+*.npz
+*.csv

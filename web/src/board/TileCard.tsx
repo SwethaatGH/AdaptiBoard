@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import {
   ArrowRight, Clock, CircleHelp, Dices, Ear, Footprints, Heart, History, MapPin, Palette,
-  PersonStanding, Shapes, Siren, Sparkles, Type, Users, UtensilsCrossed, BellRing,
+  MessageSquareText, PersonStanding, Shapes, Siren, Sparkles, Type, Users, UtensilsCrossed, BellRing,
 } from "lucide-react";
 import { useState } from "react";
 import { tileColor } from "../lib/colors";
@@ -17,19 +17,11 @@ export function FocusRing() {
   );
 }
 
-/** ARASAAC pictogram, falling back to the emoji, then to the word itself. */
-export function Picto({ label, emoji, size = "lg" }: { label: string; emoji: string; size?: "lg" | "sm" }) {
+/** ARASAAC pictogram. If it can't load, a quiet line icon (big tiles) or nothing (sentence chips). */
+export function Picto({ label, size = "lg" }: { label: string; emoji?: string; size?: "lg" | "sm" }) {
   const [failed, setFailed] = useState(false);
   const src = `/api/icon/${encodeURIComponent(label.replace(/[?!.]/g, ""))}`;
-  if (failed) {
-    return emoji ? (
-      <span className={`picto-emoji ${size}`} aria-hidden>
-        {emoji}
-      </span>
-    ) : (
-      <span className={`picto-text ${size}`}>{label}</span>
-    );
-  }
+  if (failed) return size === "lg" ? <MessageSquareText className="picto-fallback" strokeWidth={1.6} aria-hidden /> : null;
   return <img className={`picto ${size}`} src={src} alt="" draggable={false} onError={() => setFailed(true)} />;
 }
 
@@ -65,8 +57,8 @@ export function TileCard({ tile, index, focused, dim, pulse, wide, onClick }: Pr
   let art: JSX.Element;
   if (isMore) art = <ArrowRight className="more-arrow" strokeWidth={2.5} />;
   else if (isCat) art = <span className="cat-icon">{CATEGORY_ICONS[tile.target ?? ""] ?? <Shapes />}</span>;
-  else if (tile.kind === "need" && !tile.picto) art = <span className="picto-emoji lg">{tile.emoji}</span>;
-  else if (tile.picto) art = <Picto label={tile.icon || tile.label} emoji={tile.emoji} />;
+  else if (tile.kind === "need") art = <Picto label={tile.icon || tile.label} />;
+  else if (tile.picto) art = <Picto label={tile.icon || tile.label} />;
   else art = <span className={`tile-glyph ${long ? "is-long" : ""}`}>{tile.label}</span>;
 
   const showLabel = tile.picto || isMore || isCat || tile.kind === "need";

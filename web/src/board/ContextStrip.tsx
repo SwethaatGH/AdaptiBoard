@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Brain, Cpu, Ear, Gamepad2, MicOff, RefreshCw, Settings as Gear } from "lucide-react";
+import { Ear, MicOff, RefreshCw, Settings as Gear } from "lucide-react";
 import { useEffect, useRef } from "react";
-import type { ContextInfo, HubStatus } from "../lib/types";
+import type { ContextInfo } from "../lib/types";
 
 /** Five little bars that bounce with the microphone level. */
 function MicMeter({ levelRef }: { levelRef: React.MutableRefObject<number> }) {
@@ -36,15 +36,12 @@ interface Props {
   micError: string;
   levelRef: React.MutableRefObject<number>;
   pending: boolean;
-  status: HubStatus | null;
-  connected: boolean;
   onSettings: () => void;
 }
 
-export function ContextStrip({ ctx, interim, micOn, micError, levelRef, pending, status, connected, onSettings }: Props) {
+export function ContextStrip({ ctx, interim, micOn, micError, levelRef, pending, onSettings }: Props) {
   const last = ctx?.lines[ctx.lines.length - 1]?.text;
   const chips = [...new Set([...(ctx?.options ?? []), ...(ctx?.items ?? []), ...(ctx?.keywords ?? [])])].slice(0, 6);
-  const c = status?.clients;
   return (
     <section className="context">
       <div className={`mic-pill ${micOn && !micError ? "is-on" : ""}`} title={micError || "Listening to the conversation"}>
@@ -80,18 +77,6 @@ export function ContextStrip({ ctx, interim, micOn, micError, levelRef, pending,
       </div>
 
       <div className="status-pills">
-        <span className={`pill ${connected ? "ok" : "bad"}`} title="Server connection">
-          <Cpu size={14} /> {connected ? "Server" : "Offline"}
-        </span>
-        <span className={`pill ${c && c.controller > 0 ? "ok" : ""}`} title="Controller screen connected">
-          <Gamepad2 size={14} /> Controller
-        </span>
-        <span className={`pill ${c && c.decoder > 0 ? "ok" : ""} ${status?.stimulus.on ? "live" : ""}`} title="EEG decoder connected">
-          <Brain size={14} /> EEG
-        </span>
-        <span className={`pill ${status?.llm ? "ai" : ""}`} title={status?.llm ? `${status.llm} · ${status.llmModel}` : "Offline predictor (no API key)"}>
-          ✨ {status?.llm ?? "offline"}
-        </span>
         <button type="button" className="pill gear" onClick={onSettings} aria-label="Settings">
           <Gear size={16} />
         </button>

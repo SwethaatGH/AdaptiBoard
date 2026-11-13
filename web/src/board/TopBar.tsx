@@ -86,7 +86,7 @@ export function TopBar({ message, polished, spoken, completion, actions, focus, 
                   exit={{ opacity: 0, scale: 0.6, transition: { duration: 0.15 } }}
                   layout
                 >
-                  {m.picto && <Picto label={m.label} emoji={m.emoji} size="sm" />}
+                  {m.picto && <Picto label={m.label} size="sm" />}
                   {m.text}
                 </motion.span>
               ))}

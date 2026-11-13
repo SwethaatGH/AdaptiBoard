@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, CircleDot } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brain, CircleDot, Cpu, Gamepad2 } from "lucide-react";
 import { LEGEND, POS_COLORS } from "../lib/colors";
-import type { Direction } from "../lib/types";
+import type { Direction, HubStatus } from "../lib/types";
 import { HINTS, type Focus } from "./nav";
 
 const DIR_ICON: Record<Direction, JSX.Element> = {
@@ -9,7 +9,15 @@ const DIR_ICON: Record<Direction, JSX.Element> = {
   right: <ArrowRight size={16} />, ok: <CircleDot size={16} />,
 };
 
-export function HintBar({ focus, lastCmd }: { focus: Focus; lastCmd: { dir: Direction; n: number; source: string } | null }) {
+interface Props {
+  focus: Focus;
+  lastCmd: { dir: Direction; n: number; source: string } | null;
+  status: HubStatus | null;
+  connected: boolean;
+}
+
+export function HintBar({ focus, lastCmd, status, connected }: Props) {
+  const c = status?.clients;
   return (
     <footer className="hintbar">
       <div className="hints">
@@ -43,9 +51,20 @@ export function HintBar({ focus, lastCmd }: { focus: Focus; lastCmd: { dir: Dire
           </span>
         ))}
       </div>
-      <span className="credit">
-        Pictograms: Sergio Palao · ARASAAC (CC BY-NC-SA)
-      </span>
+      <div className="status-pills">
+        <span className={`pill ${connected ? "ok" : "bad"}`} title="Server connection">
+          <Cpu size={14} /> {connected ? "Server" : "Offline"}
+        </span>
+        <span className={`pill ${c && c.controller > 0 ? "ok" : ""}`} title="Controller screen connected">
+          <Gamepad2 size={14} /> Controller
+        </span>
+        <span className={`pill ${c && c.decoder > 0 ? "ok" : ""} ${status?.stimulus.on ? "live" : ""}`} title="EEG decoder connected">
+          <Brain size={14} /> EEG
+        </span>
+        <span className={`pill ${status?.llm ? "ai" : ""}`} title={status?.llm ? `${status.llm} · ${status.llmModel}` : "Offline predictor (no API key)"}>
+          {status?.llm ?? "offline"}
+        </span>
+      </div>
     </footer>
   );
 }

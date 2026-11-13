@@ -2,6 +2,28 @@ import { useEffect, useRef, useState } from "react";
 import type { HubStatus } from "./types";
 
 type Role = "board" | "controller";
+
+/**
+ * Which board this browser belongs to. On a public server (PRIVATE_ROOMS=1) every visitor gets
+ * their own room, shared by their board and controller tabs (same localStorage). Locally the
+ * server ignores it and everyone shares one room. ?room=abc in the URL picks a room explicitly.
+ */
+export const ROOM: string = (() => {
+  const make = () => Math.random().toString(36).slice(2, 12);
+  const fromUrl = new URLSearchParams(location.search).get("room");
+  try {
+    const room = fromUrl || localStorage.getItem("adaptiboard.room") || make();
+    localStorage.setItem("adaptiboard.room", room);
+    return room;
+  } catch {
+    return fromUrl || make();
+  }
+})();
+
+/** fetch() for /api calls, tagged with this browser's room. */
+export function api(url: string, init: RequestInit = {}) {
+  return fetch(url, { ...init, headers: { ...(init.headers || {}), "X-Room": ROOM } });
+}
 type Handler = (msg: any) => void;
 
 /**
@@ -22,7 +44,7 @@ export function useHub(role: Role, onMessage: Handler) {
 
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(`${proto}://${location.host}/ws?role=${role}`);
+      const ws = new WebSocket(`${proto}://${location.host}/ws?role=${role}&room=${encodeURIComponent(ROOM)}`);
       wsRef.current = ws;
       ws.onopen = () => {
         setConnected(true);
@@ -58,7 +80,7 @@ export function useHub(role: Role, onMessage: Handler) {
 }
 
 export async function postJSON<T = any>(url: string, body: object): Promise<T> {
-  const r = await fetch(url, {
+  const r = await api(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
